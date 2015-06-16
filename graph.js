@@ -241,47 +241,93 @@ function connector() {
         dir = "v",
 				offset = 20;
 
+		function off(d) {
+			var a = anchor(d);
+			if (a === "north")
+				return { x: x(d), y: y(d) - offset };
+			if (a === "east")
+				return { x: x(d) + offset, y: y(d) };
+			if (a === "south")
+				return { x: x(d), y: y(d) + offset };
+			if (a === "west")
+				return { x: x(d) - offset, y: y(d) };
+		}
+
+		function dir(x) {
+			return x === "north" ? 0 : x === "east" ? 1 : x === "south" ? 2 : 3;
+		}
+
 		var k = function (data) {
 
 			var lines = [],
 					handles = [],
 					l = left(data),
 					r = right(data),
-					a = anchor(l),
-					b = anchor(r),
+					la = anchor(l),
+					ra = anchor(r),
 					i = 1;
 
-			// simplest case, both anchors in the same direction
-			// we need only two fixed points
-			if (a === b) {
-				(function(){
-					var p = {}, q = {};
-					if (a === "north" || a === "south") {
-						p.x = x(l);
-						q.x = x(r);
-						if (a === "north")
-							p.y = q.y = Math.min(y(l), y(r)) - offset;
-						else
-							p.y = q.y = Math.max(y(l), y(r)) + offset;
-					} else {
-						p.y = y(l);
-						q.y = y(r);
-						if (a === "west")
-							p.x = q.x = Math.min(x(l), x(r)) - offset;
-						else
-							p.x = q.x = Math.max(x(l), x(r)) + offset;
+			var p = off(l),
+					q = off(r),
+					s, t;
+
+			if (la === ra) {
+				// anchors point in same direction
+				//    [l]----(p)
+				//            |
+				//       [r]-(q)
+				switch (la) {
+				case "north":
+					p.y = q.y = Math.min(p.y, q.y); break;
+				case "south":
+					p.y = q.y = Math.max(p.y, q.y); break;
+				case "west":
+					p.x = q.x = Math.min(p.x, q.x); break;
+				case "east":
+					p.x = q.x = Math.max(p.x, q.x); break;
+				}
+				lines = [l, p, q, r];
+			}	else if ( (dir(la) + dir(ra)) % 2 === 0) {
+				// anchors point in opposite direction
+				// [n, e, s, w] = [0, 1, 2, 3]
+				// (n+s) % 2 === (e+w) % 2 === 0 // true
+				if (la === "north" || la === "south") {
+					if ((la === "north" && p.y < q.y)
+							||(la === "south" && p.y > q.y)) {
+						//      [r]
+						//       |
+						// (p)--(q)
+						//  |
+						// [l]
+						p.y = q.y = p.y + (q.y - p.y)/2;
+						lines = [l, p, q, r];
+					}	else {
+						// (p)-(s) [r]
+						//  |   |   |
+						// [l] (t)-(q)
+						s = {x: p.x + (q.x - p.x)/2, y: p.y};
+						t = {x: s.x, y: q.y};
+						lines = [l, p, s, t, q, r];
 					}
-					lines = [l, p, q, r];
-				}());
-			}
-
-			// anchors show in opposite directions
-			// we need 2 or 4 points
-			else if ((a === "north" && b === "south")
-							 || (a === "south" && b === "north")
-							 || (a === "west" && b === "east")
-							 || (a === "east" && b === "west")) {
-
+				} else if (la === "west" || la === "east") {
+					if ((la === "east" && p.x < q.x)
+							||(la === "west" && p.x > q.x)) {
+						// [l]-(p)
+						//      |
+						//     (q)-[r]
+						p.x = q.x = p.x + (q.x - p.x)/2;
+						lines = [l, p, q, r];
+					}	else {
+						// [l]-(p)
+						//      |
+						// (t)-(s)
+						//  |
+						// (q)-[r]
+						s = {y: p.y + (q.y - p.y)/2, x: p.x};
+						t = {y: s.y, x: q.x};
+						lines = [l, p, s, t, q, r];
+					}
+				}
 			}
 
       return {
