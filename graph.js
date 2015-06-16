@@ -210,10 +210,8 @@ function draw() {
 					.offset(20)(d);
 
       d3.select(this)
-				.selectAll("path")
-        .data([conn.lines])
         .append("path")
-        .attr("d", d3.svg.line().attr("d", prop("lines")));
+        .attr("d", conn.lines);
 
       d3.select(this)
         .selectAll("circle")
@@ -238,7 +236,6 @@ function connector() {
 				anchor = prop("anchor"),
 				left = prop("left"),
 				right = prop("right"),
-        dir = "v",
 				offset = 20;
 
 		function off(d) {
@@ -292,8 +289,8 @@ function connector() {
 				// [n, e, s, w] = [0, 1, 2, 3]
 				// (n+s) % 2 === (e+w) % 2 === 0 // true
 				if (la === "north" || la === "south") {
-					if ((la === "north" && p.y < q.y)
-							||(la === "south" && p.y > q.y)) {
+					if ((la === "north" && p.y > q.y)
+							||(la === "south" && p.y < q.y)) {
 						//      [r]
 						//       |
 						// (p)--(q)
@@ -329,6 +326,20 @@ function connector() {
 					}
 				}
 			}
+
+			lines = lines.reduce(function(o, p, i){
+				o.path += (i === 0 ?
+												x(p) + "," + y(p) :
+												((i + o.d) % 2 === 0 ?
+												 ("v" + -(y(o.l) - y(p))) :
+												 ("h" + -(x(o.l) - x(p)))));
+				o.l = p;
+				return o;
+			}, {
+				path:"m",
+				d: (la === "north" || la === "south") ? 1 : 0
+			}).path;
+
 
       return {
 				lines: lines,
