@@ -77,8 +77,8 @@ function makeLink(a, b) {
 var graph = {nodes: [], links: [], history: []};
 
 // constants
-var height = 400,
-    width = 400;
+var height = 600,
+    width = 600;
 
 // canvas
 var svg = d3.select("svg")
@@ -134,52 +134,6 @@ function addLink(d) {
 
   } else {
     newLink.right = d;
-    var offset = 20;
-    var n = newLink;
-    n.path = [{x: n.left.x, y: n.left.y}, {x: n.right.x, y: n.right.y}];
-
-    if (n.left.anchor === n.right.anchor && (n.right.anchor === "north" || n.right.anchor === "south")) {
-      var a = n.left.x, b = n.right.x, s = n.left.anchor === "south";
-      var p = {x: a + (b - a)/2,
-               y: Math[s ? "max" : "min"](n.left.y, n.right.y) + (s ? 1 : -1) * offset};
-      n.path.splice(1, 0, p);
-      n.start = "v";
-    } else if ((n.left.anchor === "south" && n.right.anchor === "north")
-               || (n.left.anchor === "north" && n.right.anchor === "south")){
-      var a = n.left.x, b = n.right.x,
-          c = n.left.y, d = n.right.y,
-          e = (b-a)/4;
-      var p = {x: a + 1 * e, y: n.left.y + (n.left.anchor === "south" ? 1 : -1) * offset};
-      var q = {x: a + 2 * e, y: c + (d - c)/2};
-      var r = {x: a + 3 * e, y: n.right.y + (n.right.anchor === "south" ? 1 : -1) * offset};
-      if ((n.left.anchor === "south" && n.right.anchor === "north" && n.left.y < n.right.y)
-          ||(n.left.anchor === "north" && n.right.anchor === "south" && n.left.y > n.right.y))
-        newLink.path.splice(1, 0, q);
-      else
-        newLink.path.splice(1, 0, p, q, r);
-      newLink.start = "v";
-    } else if (n.left.anchor === n.right.anchor && (n.right.anchor === "west" || n.right.anchor === "east")) {
-      var a = n.left.y, b = n.right.y, w = n.left.anchor === "west";
-      var p = {x: Math[w ? "min" : "max"](n.left.x, n.right.x) + (w ? -1 : 1) * offset,
-               y: a + (b - a)/2};
-      n.path.splice(1, 0, p);
-      n.start = "h";
-    } else if ((n.left.anchor === "east" && n.right.anchor === "west")
-               || (n.left.anchor === "west" && n.right.anchor === "east")){
-      var a = n.left.y, b = n.right.y,
-          c = n.left.x, d = n.right.x,
-          e = (b-a)/4;
-      var p = {y: a + 1 * e, x: n.left.x + (n.left.anchor === "west" ? -1 : 1) * offset};
-      var q = {y: a + 2 * e, x: c + (d - c)/2};
-      var r = {y: a + 3 * e, x: n.right.x + (n.right.anchor === "west" ? -1 : 1) * offset};
-      if ((n.left.anchor === "east" && n.right.anchor === "west" && n.left.x < n.right.x)
-          ||(n.left.anchor === "west" && n.right.anchor === "east" && n.left.x > n.right.x))
-        newLink.path.splice(1, 0, q);
-      else
-        newLink.path.splice(1, 0, p, q, r);
-      newLink.start = "h";
-    }
-
     graph.links.push(newLink);
     svg.selectAll(".new-link").remove();
     newLink = null;
@@ -250,16 +204,20 @@ function draw() {
     .insert("g", ".node") // insert before first .node
     .attr("class", "link")
     .each(function(d){
-      var knees = interpolateKnees().start(d.start)(d.path);
+      var conn = connector()
+					.left(prop("left"))
+					.right(prop("right"))
+					.offset(20)(d);
 
       d3.select(this)
+				.selectAll("path")
+        .data([conn.lines])
         .append("path")
-        .datum(knees)
-        .attr("d", d3.svg.line().x(prop("x")).y(prop("y")));
+        .attr("d", d3.svg.line().attr("d", prop("lines")));
 
       d3.select(this)
         .selectAll("circle")
-        .data(d.path.slice(1, -1))
+        .data(conn.handles)
         .enter()
         .append("circle")
         .attr("class", "handle")
@@ -273,36 +231,72 @@ function draw() {
     .remove();
 }
 
-function interpolateKnees() {
+function connector() {
   return (function(){
     var x = prop("x"),
         y = prop("y"),
-        dir = "v";
+				anchor = prop("anchor"),
+				left = prop("left"),
+				right = prop("right"),
+        dir = "v",
+				offset = 20;
 
-    function knees(_data) {
-      var data = _data.slice();
+		var k = function (data) {
 
-      var last = data[data.length - 1],
-          cur = data.shift(),
-          res = [cur],
-          _cur = cur,
-          next;
+			var lines = [],
+					handles = [],
+					l = left(data),
+					r = right(data),
+					a = anchor(l),
+					b = anchor(r),
+					i = 1;
 
-      while (next = data.shift()) {
-        res.push(_cur = (dir === "v" ? {d: dir, x: x(_cur), y: y(next)} : {x: x(next), y: y(_cur)}));
-        dir = dir === "v" ? "h" : "v";
-        next = cur;
-      }
+			// simplest case, both anchors in the same direction
+			// we need only two fixed points
+			if (a === b) {
+				(function(){
+					var p = {}, q = {};
+					if (a === "north" || a === "south") {
+						p.x = x(l);
+						q.x = x(r);
+						if (a === "north")
+							p.y = q.y = Math.min(y(l), y(r)) - offset;
+						else
+							p.y = q.y = Math.max(y(l), y(r)) + offset;
+					} else {
+						p.y = y(l);
+						q.y = y(r);
+						if (a === "west")
+							p.x = q.x = Math.min(x(l), x(r)) - offset;
+						else
+							p.x = q.x = Math.max(x(l), x(r)) + offset;
+					}
+					lines = [l, p, q, r];
+				}());
+			}
 
-      res.push(last);
+			// anchors show in opposite directions
+			// we need 2 or 4 points
+			else if ((a === "north" && b === "south")
+							 || (a === "south" && b === "north")
+							 || (a === "west" && b === "east")
+							 || (a === "east" && b === "west")) {
 
-      return res;
-    }
+			}
 
-    knees.x = function(fn) {x = fn; return knees};
-    knees.y = function(fn) {y = fn; return knees};
-    knees.start = function(d) {dir = d; return knees};
+      return {
+				lines: lines,
+				handles: handles
+			};
+		}
 
-    return knees;
+    k.x = function(f) {x = f; return k};
+		k.y = function(f) {y = f; return k};
+		k.left = function(f) {left = f; return k};
+		k.right = function(f) {right = f; return k};
+  	k.anchor = function(f) {anchor = f; return k};
+		k.offset = function(o) {offset = o; return k};
+
+    return k;
   }());
 }
