@@ -441,7 +441,7 @@ function draw(graph) {
 
   // insert new links
   link.enter()
-    .insert("path", ".node") // insert before first .node
+    .insert("path") // insert before first .node
     .attr("class", "link")
     .attr("d", compose(d3.svg.line().x(prop("x")).y(prop("y")), prop("waypoints")));
 
