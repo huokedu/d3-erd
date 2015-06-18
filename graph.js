@@ -1,7 +1,39 @@
-// helpers
+// constants
+var KEYCODES = {
+    ESC: 27,
+    L: "L".charCodeAt(0),
+    N: "N".charCodeAt(0),
+    E: "E".charCodeAt(0)
+};
+
+var MENU = {
+  addLink: $('[href="#addLink"]'),
+  addNode: $('[href="#addNode"]'),
+  redo: $('[href="#redo"]'),
+  undo: $('[href="#undo"]'),
+};
+
+// frp
 var _ = highland;
+var compose = highland.compose;
+var not = highland.not;
+var get = highland.get;
+var log = console.log.bind(console);
+
+// DOM selectors
 function $(s, c){ return (c || document).querySelector(s); }
 function $$(s, c){ return Array.prototype.slice.call((c || document).querySelectorAll(s)); }
+
+// helper
+function self() {return this;}
+function id(x)  {return x;}
+function div(b) {return function(a) {return isFinite(a) ? a / b : undefined}}
+function mul(b) {return function(a) {return isFinite(a) ? a * b : undefined}}
+function add(b) {return function(a) {return isFinite(a) ? a + b : undefined}}
+function sub(b) {return function(a) {return isFinite(a) ? a - b : undefined}}
+function is(b)  {return function(a) {return b === a}}
+function preventDefault(e){ e.preventDefault(); }
+function getLinkNode(t){ while (t && (t.nodeName !== "A")) t = t.parentNode; return t;}
 
 function throttle(t, fn) {
   var _t = null;
@@ -20,14 +52,6 @@ function find(arr, filter) {
   return -1;
 }
 
-function makeSwitch(fn, def) {
-  var _sw = !!def;
-  return function(sw) {
-    if (arguments.length === 0) return _sw;
-    return arguments.length === 0 ? _sw : (_sw = fn(sw));
-  }
-}
-
 function generateUUID() {
   var d = new Date().getTime();
   var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -38,53 +62,27 @@ function generateUUID() {
   return uuid;
 };
 
-function compose(/* Function... */) {
-    var fns = arguments;
-
-    return function (result) {
-      for (var i = fns.length - 1; i > -1; i--)
-        result = fns[i].call(this, result);
-
-      return result;
-    }
-}
-
-function translate(x, y) {
+function cssTranslate(x, y) {
   return function (d) {
     return "translate(" + x(d) + ", " + y(d) + ")";
   }
 }
 
-function fn(name /* args... */) {
+
+function method(name /* args... */) {
   var args = Array.prototype.slice.call(arguments, 1);
   return function (obj) {
     return obj ? obj[name] ? obj[name].apply(obj, args) : undefined : undefined;
   }
 }
 
-function self() {
-  return this;
-}
-
-function id(x) {
-  return x;
-}
-
-function prop(name) {
-  if (name.indexOf(".") > -1)
-    return compose.apply(null, name.split(".").map(function(_, i, names){
-      return prop(names[names.length - i - 1]);
-    }));
-
-  return function (obj) {
-    return obj ? obj[name] : undefined
-  }
-}
-
-function div(b) {return function(a) {return isFinite(a) ? a / b : undefined}}
-function mul(b) {return function(a) {return isFinite(a) ? a * b : undefined}}
-function add(b) {return function(a) {return isFinite(a) ? a + b : undefined}}
-function sub(b) {return function(a) {return isFinite(a) ? a - b : undefined}}
+/**
+ * Creates an event stream from DOM events
+ *
+ * @param {String} ev the event type, e.g. 'click'
+ * @param {DOMNode} the DOM Node to listen on
+ * @return highland stream
+ */
 function fromEvents(ev, node) {
 	var s = _();
 	node.addEventListener(ev, s.write.bind(s));
@@ -92,9 +90,66 @@ function fromEvents(ev, node) {
 }
 
 // global event streams
-var mouseClicks = fromEvents("click", $("svg")),
-		mouseMoves = fromEvents("mousemove", $("svg")).map(function(e){return {x: e.offsetX, y: e.offsetY}}),
-		keys = fromEvents("keyup", document).map(prop("which"));
+var mouseClicks = fromEvents("click", document).tap(preventDefault).pluck("target"),
+		mouseMoves = fromEvents("mousemove", document).pick(["offsetX", "offsetY"]),
+    keys = fromEvents("keyup", document).pluck("which");
+
+
+var addingNode = _(),
+    addingLink = _(),
+    undoable = _(),
+    redoable = _(),
+    menuStates = [addingNode, addingLink];
+
+addingLink.each(function(s){
+  addingLink._last = s;
+  if (s) menuStates.filter(compose(not, is(addingLink))).forEach(function(s){s.write(false)});
+  if (!s) svg.selectAll(".new-link").remove();
+  MENU.addLink.classList[s?"add":"remove"]("active");
+  document.body.classList[s ? "add":"remove"]("adding-link");
+});
+
+addingNode.each(function(s){
+  addingNode._last = s;
+  if (s) menuStates.filter(compose(not, is(addingNode))).forEach(function(s){s.write(false)});
+  MENU.addNode.classList[s?"add":"remove"]("active");
+  document.body.classList[s ? "add":"remove"]("adding-node");
+});
+
+undoable.each(function(s){
+  MENU.undo.setAttribute("disabled", !s);
+});
+
+redoable.each(function(s){
+  MENU.redo.setAttribute("disabled", !s);
+});
+
+mouseClicks
+  .fork()
+  .map(getLinkNode)
+  .each(function(n) {
+    if (n === MENU.addLink) addingLink.write(!addingLink._last);
+    if (n === MENU.addNode) addingNode.write(!addingNode._last);
+    if (n === MENU.undo) {
+      if (graph.undo()) draw(graph);
+      undoable.write(graph.undoable());
+    }
+    if (n === MENU.redo) {
+      if (graph.redo()) draw(graph);
+      redoable.write(graph.redoable());
+    }
+
+  });
+
+keys
+  .fork()
+  .each(function(k){
+    switch (k) {
+    case KEYCODES.L: addingLink.write(!addingLink._last); break;
+    case KEYCODES.N: addingNode.write(!addingNode._last); break;
+    case KEYCODES.ESC: menuStates.forEach(method("write", false)); break;
+    }
+  });
 
 
 var graph = (function(){
@@ -306,49 +361,6 @@ var svg = d3.select("svg")
     .attr("height", "100%")
     .attr("width", "100%");
 
-(function(){
-  var ESC = 27,
-      L = "L".charCodeAt(0),
-      N = "N".charCodeAt(0),
-      E = "E".charCodeAt(0);
-
-	keys.each(function(k){
-
-    switch (k) {
-    case ESC:
-      svg.addingNode(false);
-      svg.addingLink(false);
-      break;
-    case L:
-      svg.addingNode(false);
-      svg.addingLink(!svg.addingLink());
-      break;
-    case N:
-      svg.addingLink(false);
-      svg.addingNode(!svg.addingNode());
-      break;
-
-    }
-	});
-
-}());
-
-
-svg.addingNode = makeSwitch(function(s){
-  return document.body.classList[s ? "add":"remove"]("adding-node"), s;
-});
-svg.undoable = makeSwitch(function(s){
-  return d3.select('[href="#undo"]').attr("disabled", !s), s;
-});
-svg.redoable = makeSwitch(function(s){
-  return d3.select('[href="#redo"]').attr("disabled", !s), s;
-});
-svg.addingLink = makeSwitch(function(s){
-  document.body.classList[s ? "add":"remove"]("adding-link");
-  if (!s) svg.selectAll(".new-link").remove();
-  return s;
-});
-
 // menu click handler
 d3.select('[href="#load"]')
   .on("click", function () {
@@ -361,16 +373,6 @@ d3.select('[href="#save"]')
     graph.save("noname.json", "local");
   });
 
-d3.select('[href="#addNode"]')
-  .on("click", function () {
-    d3.event.preventDefault();
-    svg.addingNode(!svg.addingNode());
-  });
-d3.select('[href="#addLink"]')
-  .on("click", function () {
-    d3.event.preventDefault();
-    svg.addingLink(!svg.addingLink());
-  });
 d3.select('[href="#undo"]')
   .on("click", function () {
     d3.event.preventDefault();
@@ -406,13 +408,13 @@ function draw(graph) {
   svg.redoable(graph.redoable());
 
   // update nodes
-  node = node.data(graph.nodes, prop("id"));
+  node = node.data(graph.nodes, get("id"));
 
   // insert new nodes
   var tmp = node.enter()
       .insert("g")
       .attr("class", "node")
-      .attr("transform", translate(prop("x"), prop("y")))
+      .attr("transform", cssTranslate(get("x"), get("y")))
       .each(function(d) {
 
         // draw a box
@@ -420,8 +422,8 @@ function draw(graph) {
         var x = d.x, y = d.y;
 
         n.append("rect")
-          .attr("height", prop("height"))
-          .attr("width", prop("width"));
+          .attr("height", get("height"))
+          .attr("width", get("width"));
 
         var bbox = this.getBBox();
 
@@ -435,9 +437,9 @@ function draw(graph) {
         // write the title
         n.append("text")
           .attr("class", "title")
-          .text(prop("name"))
+          .text(get("name"))
           .attr("x", bbox.width/2)
-          .attr("y", compose(prop("height"), fn("getBBox"), self));
+          .attr("y", compose(get("height"), method("getBBox"), self));
 
         // draw the "add link" handlers
         n.selectAll("circle")
@@ -446,8 +448,8 @@ function draw(graph) {
           .append("circle")
           .attr("class", "add-link")
           .attr("r", 5)
-          .attr("cx", compose(sub(x), prop("x")))
-          .attr("cy", compose(sub(y), prop("y")))
+          .attr("cx", compose(sub(x), get("x")))
+          .attr("cy", compose(sub(y), get("y")))
           .append("title")
           .text("add link");
       });
@@ -463,7 +465,7 @@ function draw(graph) {
   link.enter()
     .insert("path") // insert before first .node
     .attr("class", "link")
-    .attr("d", compose(d3.svg.line().x(prop("x")).y(prop("y")), prop("waypoints")));
+    .attr("d", compose(d3.svg.line().x(get("x")).y(get("y")), get("waypoints")));
 
   // remove old links
   link.exit()
@@ -474,9 +476,9 @@ function draw(graph) {
 var waypoints = function(){
   return function(){
 
-    var x = prop("x"),
-        y = prop("y"),
-			  anchor = prop("anchor"),
+    var x = get("x"),
+        y = get("y"),
+			  anchor = get("anchor"),
 			  offset = 20;
 
 	  function off(d) {
