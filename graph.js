@@ -1,4 +1,8 @@
 // helpers
+var _ = highland;
+function $(s, c){ return (c || document).querySelector(s); }
+function $$(s, c){ return Array.prototype.slice.call((c || document).querySelectorAll(s)); }
+
 function throttle(t, fn) {
   var _t = null;
   return function(/* args... */) {
@@ -81,6 +85,17 @@ function div(b) {return function(a) {return isFinite(a) ? a / b : undefined}}
 function mul(b) {return function(a) {return isFinite(a) ? a * b : undefined}}
 function add(b) {return function(a) {return isFinite(a) ? a + b : undefined}}
 function sub(b) {return function(a) {return isFinite(a) ? a - b : undefined}}
+function fromEvents(ev, node) {
+	var s = _();
+	node.addEventListener(ev, s.write.bind(s));
+	return s;
+}
+
+// global event streams
+var mouseClicks = fromEvents("click", $("svg")),
+		mouseMoves = fromEvents("mousemove", $("svg")).map(function(e){return {x: e.offsetX, y: e.offsetY}}),
+		keys = fromEvents("keyup", document).map(prop("which"));
+
 
 var graph = (function(){
 
@@ -101,17 +116,22 @@ var graph = (function(){
 
   // save at most every 1000ms
   var save = throttle(1000, function save(name, target) {
-    var s = CircularJSON.stringify({
-      links: links,
-      nodes: nodes,
-      history: history,
-      index: _index,
-      length: _length
-    }, null, "  ");
-
     if (!target) {
-      localStorage[name] = s;
+      localStorage[name] = CircularJSON.stringify({
+				links: links,
+				nodes: nodes,
+				history: history,
+				index: _index,
+				length: _length
+			});
     } else if (target === "local") {
+			var s = CircularJSON.stringify({
+				links: links,
+				nodes: nodes,
+				history: history,
+				index: _index,
+				length: _length
+			}, null, "  ");
       var a = document.createElement("a");
       a.download = name;
       a.href = "data:application/json;base64," + btoa(s);
@@ -124,7 +144,7 @@ var graph = (function(){
   });
 
   function load(source, cb) {
-    if (!source) {
+    if (!source || source === localStorage) {
       _cb(CircularJSON.parse(localStorage.store));
     } else if (source === "local") {
       var f = document.createElement("input");
@@ -167,7 +187,7 @@ var graph = (function(){
     actions[history.action === "make" ? "make" : "remove"](history.where === "node" ? nodes : links, history.what);
 
     // save
-    save();
+    save("store");
 
     // all went well
     return true;
@@ -284,9 +304,7 @@ var mousedown = (function(){
 // canvas
 var svg = d3.select("svg")
     .attr("height", "100%")
-    .attr("width", "100%")
-    .on("mousedown", mousedown)
-    .on("mousemove", mousemove);
+    .attr("width", "100%");
 
 (function(){
   var ESC = 27,
@@ -294,8 +312,9 @@ var svg = d3.select("svg")
       N = "N".charCodeAt(0),
       E = "E".charCodeAt(0);
 
-  document.body.addEventListener("keyup", function(e){
-    switch (e.which) {
+	keys.each(function(k){
+
+    switch (k) {
     case ESC:
       svg.addingNode(false);
       svg.addingLink(false);
@@ -310,7 +329,8 @@ var svg = d3.select("svg")
       break;
 
     }
-  });
+	});
+
 }());
 
 
@@ -452,7 +472,7 @@ function draw(graph) {
 
 
 var waypoints = function(){
-  return (function(){
+  return function(){
 
     var x = prop("x"),
         y = prop("y"),
@@ -553,5 +573,29 @@ var waypoints = function(){
 
     return w;
 
-  }());
+  };
 }
+
+
+// info about saved work
+(function(){
+	if (!localStorage.store)
+		return;
+
+	var a = document.createElement("div");
+	a.classList.add("alert");
+	a.classList.add("alert-info");
+	a.classList.add("alert-dismissable");
+	a.setAttribute("role", "alert");
+	a.innerHTML = '<button type="button" class="close" data-dismiss="alert" aria-label="Close">'
+		+ '<span aria-hidden="true">&times;</span></button>'
+		+ '<strong>Hi!</strong> It seems you\'ve been working on something before. Would you like to '
+		+ '<a href="#reload" class="alert-link">reload</a> it?';
+	document.querySelector("#alerts").appendChild(a);
+
+	document.querySelector('[href="#reload"]').addEventListener("click", function(e){
+		e.preventDefault();
+		graph.load(localStorage, draw);
+
+	});
+}());

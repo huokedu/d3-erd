@@ -1,13 +1,26 @@
-
 [disabled=true] {
     opacity: 0.3;
     pointer-events: none;
+}
+
+#alerts {
+		position: absolute;
+		top: 1em;
+		left: 10%;
+		right: 10%;
+}
+
+.alert {
+		border-radius: 0;
+		border: none;
 }
 
 #menu {
     position: absolute;
     top: 1em;
     left: 1em;
+		padding: 0;
+		margin: 0;
 }
 #menu li {
     padding: 1em 0;
@@ -40,7 +53,7 @@ body, html {
     opacity: 0;
     display: none;
     transition-property: opacity;
-    transition-duration: 300ms;
+    transition-duration: 200ms;
 }
 
 body.adding-link .add-link {
@@ -52,7 +65,7 @@ body.adding-link .add-link {
     background-color: transparent;
     border-radius: 50%;
     transition-property: background-color;
-    transition-duration: 300ms;
+    transition-duration: 200ms;
 }
 
 .adding-link #menu a[href="#addLink"], .adding-node #menu a[href="#addNode"], #menu a.active, #menu a:active {
