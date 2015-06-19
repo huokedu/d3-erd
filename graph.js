@@ -650,11 +650,19 @@ var waypoints = function(){
 		+ '<span aria-hidden="true">&times;</span></button>'
 		+ '<strong>Hi!</strong> It seems you\'ve been working on something before. Would you like to '
 		+ '<a href="#reload" class="alert-link">reload</a> it?';
-	document.querySelector("#alerts").appendChild(a);
+	$("#alerts").appendChild(a);
 
-	document.querySelector('[href="#reload"]').addEventListener("click", function(e){
+	$('[href="#reload"]').addEventListener("click", function(e){
 		e.preventDefault();
 		graph.load(localStorage, draw);
 
 	});
+
+	setTimeout(function(){
+		a.classList.add("fade");
+		setTimeout(function(){
+			a.parentNode.removeChild(a)
+		}, 600);
+	}, 10000);
+
 }());
