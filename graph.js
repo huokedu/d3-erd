@@ -96,22 +96,23 @@ function fromEvents(ev, node) {
 }
 
 // global event streams
-var mouseClicks = fromEvents("click", document).tap(preventDefault).pluck("target"),
-		mouseMoves = fromEvents("mousemove", document),
-		mouseDowns = fromEvents("mousedown", document).pluck("target"),
-		mouseUps = fromEvents("mouseup", document).pluck("target"),
-    keyDowns = fromEvents("keydown", document).pluck("which");
+var mouseClicks = fromEvents("click", document).tap(preventDefault),
+		mouseMoves = fromEvents("mousemove", document).debounce(10).latest(),
+		mouseDowns = fromEvents("mousedown", document).debounce(100).latest(),
+		mouseUps = fromEvents("mouseup", document).debounce(100).latest(),
+    keyDowns = fromEvents("keydown", document).pluck("which"),
     keyUps = fromEvents("keyup", document).pluck("which");
 
-var drag = mouseMoves.fork().consume((function(){
-	var down, _pos;
-	mouseUps.fork().each(function(x){down = false; _pos = null});
-	mouseDowns.fork().each(function(x){down = true;});
+function dragStream(){
+	var mv = mouseMoves.fork();
+	var up = mouseUps.fork();
+	var _pos, ended;
 
-	return function(err, pos, push, next) {
+	up.each(function(){_pos = null; mv.destroy()});
+
+	return mv.consume(function(err, pos, push, next){
 		if (err) return push(err), next();
-		if (pos === nil) return push(null, x);
-		if (!down) return next();
+		if (pos === nil) return push(null, nil);
 		if (!_pos) {
 			_pos = {
 				x1: pos.offsetX, y1: pos.offsetY,
@@ -119,13 +120,16 @@ var drag = mouseMoves.fork().consume((function(){
 				dx: 0, dy: 0
 			}
 		} else {
-			_pos.x2 = pos.offsetX;
-			_pos.y2 = pos.offsetY;
-			_pos.dx = _pos.x2 - _pos.x1;
-			_pos.dy = _pos.y2 - _pos.y1;
+			_pos.x2 = pos.offsetX; _pos.y2 = pos.offsetY;
+			_pos.dx = _pos.x2 - _pos.x1; _pos.dy = _pos.y2 - _pos.y1;
 		}
 		return push(null, _pos), next();
-	}}()));
+	});
+}
+
+var svgDrag = mouseDowns.fork()
+		.filter(function(e){return e.target.nodeName.match(/svg/i)})
+		.map(dragStream);
 
 var addingNode = _(),
     addingLink = _(),
@@ -174,10 +178,12 @@ undoing.each(function(){
 redoing.each(function(){
   if (graph.redo()) draw(graph);
   redoable.write(graph.redoable());
-})
+});
 
+// mouseclicks on menu
 mouseClicks
   .fork()
+	.pluck("target")
   .map(getLinkNode)
   .each(function(n) {
     if (n === MENU.addLink) addingLink.write(!addingLink._last);
@@ -187,16 +193,16 @@ mouseClicks
     if (n === MENU.redo) redoing.write(true);
   });
 
+// keyboard keydown
 keyDowns
-	.fork()
 	.each(function(k){
 		switch (k) {
 		case KEYCODES.SPACE: panning.write(true); break;
 		}
 	});
 
+// keyboard keyup
 keyUps
-  .fork()
   .each(function(k){
     switch (k) {
     case KEYCODES.L: addingLink.write(!addingLink._last); break;
@@ -416,34 +422,23 @@ var mousedown = (function(){
 // canvas
 var svg = d3.select("svg")
     .attr("height", "100%")
-    .attr("width", "100%");
+    .attr("width", "100%")
+		.append("g");
 
-// menu click handler
-d3.select('[href="#load"]')
-  .on("click", function () {
-    d3.event.preventDefault();
-    graph.load("local", draw);
-  });
-d3.select('[href="#save"]')
-  .on("click", function () {
-    d3.event.preventDefault();
-    graph.save("noname.json", "local");
-  });
+svg.append("text").text("yo");
 
-d3.select('[href="#undo"]')
-  .on("click", function () {
-    d3.event.preventDefault();
-    if (graph.undo())
-      draw(graph);
-  });
-d3.select('[href="#redo"]')
-  .on("click", function () {
-    d3.event.preventDefault();
-    if (graph.redo())
-      draw(graph);
-  });
+var svgPan = _().each(function(drg) {
+	var cur = [0,0];
+	if (svg.attr("transform"))
+		cur = svg.attr("transform").substr(10).replace(")", "").split(/, +/).map(Number);
 
+	console.log(cur);
+	drg.each(function(pos){console.log("d", drg.id, cur, [pos.dx, pos.dy], [cur[0]+pos.dx,cur[1]+pos.dy]);
+		svg.attr("transform", "translate(" + (cur[0]+pos.dx) + ", " + (cur[1]+pos.dy) + ")");
+	});
+});
 
+svgDrag.pipe(svgPan);
 
 // mouseover handler
 function mousemove() {
@@ -661,7 +656,7 @@ var waypoints = function(){
 	setTimeout(function(){
 		a.classList.add("fade");
 		setTimeout(function(){
-			a.parentNode.removeChild(a)
+			if (a.parentNode) a.parentNode.removeChild(a)
 		}, 600);
 	}, 10000);
 
