@@ -1,20 +1,26 @@
 // constants
 var KEYCODES = {
-    ESC: 27,
-    L: "L".charCodeAt(0),
-    N: "N".charCodeAt(0),
-    E: "E".charCodeAt(0)
+  ESC: 27,
+	SPACE: 32,
+	TAB: 9,
+  L: "L".charCodeAt(0),
+  N: "N".charCodeAt(0),
+  E: "E".charCodeAt(0),
+	Z: "Z".charCodeAt(0),
+	Y: "Y".charCodeAt(0)
 };
 
 var MENU = {
   addLink: $('[href="#addLink"]'),
   addNode: $('[href="#addNode"]'),
+	pan: $('[href="#pan"]'),
   redo: $('[href="#redo"]'),
   undo: $('[href="#undo"]'),
 };
 
 // frp
 var _ = highland;
+var nil = highland.nil;
 var compose = highland.compose;
 var not = highland.not;
 var get = highland.get;
@@ -91,19 +97,48 @@ function fromEvents(ev, node) {
 
 // global event streams
 var mouseClicks = fromEvents("click", document).tap(preventDefault).pluck("target"),
-		mouseMoves = fromEvents("mousemove", document).pick(["offsetX", "offsetY"]),
-    keys = fromEvents("keyup", document).pluck("which");
+		mouseMoves = fromEvents("mousemove", document),
+		mouseDowns = fromEvents("mousedown", document).pluck("target"),
+		mouseUps = fromEvents("mouseup", document).pluck("target"),
+    keyDowns = fromEvents("keydown", document).pluck("which");
+    keyUps = fromEvents("keyup", document).pluck("which");
 
+var drag = mouseMoves.fork().consume((function(){
+	var down, _pos;
+	mouseUps.fork().each(function(x){down = false; _pos = null});
+	mouseDowns.fork().each(function(x){down = true;});
+
+	return function(err, pos, push, next) {
+		if (err) return push(err), next();
+		if (pos === nil) return push(null, x);
+		if (!down) return next();
+		if (!_pos) {
+			_pos = {
+				x1: pos.offsetX, y1: pos.offsetY,
+				x2: pos.offsetX, y2: pos.offsetY,
+				dx: 0, dy: 0
+			}
+		} else {
+			_pos.x2 = pos.offsetX;
+			_pos.y2 = pos.offsetY;
+			_pos.dx = _pos.x2 - _pos.x1;
+			_pos.dy = _pos.y2 - _pos.y1;
+		}
+		return push(null, _pos), next();
+	}}()));
 
 var addingNode = _(),
     addingLink = _(),
+		panning = _(),
+		undoing = _(),
+		redoing = _(),
     undoable = _(),
     redoable = _(),
-    menuStates = [addingNode, addingLink];
+    menuStates = [addingNode, addingLink, panning];
 
 addingLink.each(function(s){
   addingLink._last = s;
-  if (s) menuStates.filter(compose(not, is(addingLink))).forEach(function(s){s.write(false)});
+  if (s) menuStates.     filter(compose(not, is(addingLink))).forEach(function(s){s.write(false)});
   if (!s) svg.selectAll(".new-link").remove();
   MENU.addLink.classList[s?"add":"remove"]("active");
   document.body.classList[s ? "add":"remove"]("adding-link");
@@ -124,30 +159,52 @@ redoable.each(function(s){
   MENU.redo.setAttribute("disabled", !s);
 });
 
+panning.each(function(s){
+	panning._last = s;
+  if (s) menuStates.filter(compose(not, is(panning))).forEach(function(s){s.write(false)});
+  MENU.pan.classList[s?"add":"remove"]("active");
+	document.body.classList[s ? "add":"remove"]("panning");
+});
+
+undoing.each(function(){
+  if (graph.undo()) draw(graph);
+  undoable.write(graph.undoable());
+});
+
+redoing.each(function(){
+  if (graph.redo()) draw(graph);
+  redoable.write(graph.redoable());
+})
+
 mouseClicks
   .fork()
   .map(getLinkNode)
   .each(function(n) {
     if (n === MENU.addLink) addingLink.write(!addingLink._last);
     if (n === MENU.addNode) addingNode.write(!addingNode._last);
-    if (n === MENU.undo) {
-      if (graph.undo()) draw(graph);
-      undoable.write(graph.undoable());
-    }
-    if (n === MENU.redo) {
-      if (graph.redo()) draw(graph);
-      redoable.write(graph.redoable());
-    }
-
+		if (n === MENU.pan) panning.write(!panning._last);
+    if (n === MENU.undo) undoing.write(true);
+    if (n === MENU.redo) redoing.write(true);
   });
 
-keys
+keyDowns
+	.fork()
+	.each(function(k){
+		switch (k) {
+		case KEYCODES.SPACE: panning.write(true); break;
+		}
+	});
+
+keyUps
   .fork()
   .each(function(k){
     switch (k) {
     case KEYCODES.L: addingLink.write(!addingLink._last); break;
     case KEYCODES.N: addingNode.write(!addingNode._last); break;
     case KEYCODES.ESC: menuStates.forEach(method("write", false)); break;
+		case KEYCODES.SPACE: panning.write(false); break;
+		case KEYCODES.Z: undoing.write(true); break;
+		case KEYCODES.Y: redoing.write(true); break;
     }
   });
 
